@@ -1,5 +1,7 @@
 # Building a CI/CD Pipeline
 
+A hands-on guide to automating the journey from code to production, created for Level 5/6 Software Engineering apprentices.
+
 By the end of this session, you'll have a working CI/CD pipeline that automatically tests your code, packages it into a Docker image, and deploys it to a live URL — every time you push a change. Not a diagram of a pipeline or a hypothetical walkthrough: a real, running pipeline that you built yourself.
 
 Along the way, you'll encounter the problems that CI/CD was invented to solve, and understand why the industry converged on these solutions. You'll also define your environment as code — the foundational idea behind Infrastructure as Code (IaC).
@@ -96,13 +98,13 @@ This is the problem of **broken integration**: individual changes that look corr
 
 The key word is *continuous*: not "we run tests before releases" or "developers run tests when they remember to", but every single push, automatically, within minutes.
 
-### GitHub Actions
+### The How: GitHub Actions
 
 GitHub Actions is GitHub's built-in automation platform. You define pipelines — called **workflows** — as YAML files stored in the `.github/workflows/` directory of your repository. Because they live alongside your code, they're version-controlled, reviewable, and auditable. You can see exactly what changed in the pipeline, when, and why — the same as any other file.
 
 A workflow consists of one or more **jobs**, each containing a sequence of **steps**. Steps can run shell commands or call pre-built **actions** — reusable units of automation published by GitHub and the community. The `uses:` keyword invokes an action; the `run:` keyword executes a shell command directly.
 
-### Create Your CI Workflow
+### The What: Create Your CI Workflow
 
 1. In your repository, click **"Add file"** → **"Create new file"**
 2. In the filename field, type: `.github/workflows/pipeline.yml`
@@ -133,9 +135,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run linter
         run: npm run lint
@@ -205,7 +208,7 @@ This is a complete environment definition: start from an official Nginx web serv
 
 **Continuous Delivery** means that every time the integration stage passes, the application is automatically packaged and made available for deployment — as a tested, versioned artifact that can be deployed to any environment at any time.
 
-### Add a Delivery Stage
+### The What: Add a Delivery Stage
 
 The delivery stage should only run when changes land on the `main` branch — not on every push to every branch. You don't want to publish a new container image for every work-in-progress commit on a feature branch; you want to publish when code has been reviewed and merged.
 
@@ -236,19 +239,24 @@ Add the following job to your `pipeline.yml`, after the `test` job. Make sure th
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set lowercase image name
+        run: echo "IMAGE_NAME=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
+            ghcr.io/${{ env.IMAGE_NAME }}:latest
+            ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
 ```
 
 Commit this change and go to the **Actions** tab. You'll see both jobs in the workflow: `test` runs first, and `build-and-push` only starts once `test` completes successfully.
 
 ### Understanding the Tags
+
+> **Note:** Docker requires image names to be entirely lowercase. Because `github.repository` preserves the capitalisation of your GitHub username, a mixed-case account name such as `JeevanNotey` would produce a tag that Docker rejects. The preceding step uses the shell command `tr '[:upper:]' '[:lower:]'` to convert the repository path to lowercase and writes the result to `$GITHUB_ENV` — GitHub Actions' mechanism for passing values between steps in the same job.
 
 The image is published with two tags: `latest` (always pointing to the most recent successful build) and the full Git commit SHA (a unique fingerprint of the exact code that produced this image). The SHA tag is what makes deployments reproducible — if something goes wrong in production, you can identify the exact commit that built the running image, and roll back to a previous SHA with confidence.
 
@@ -272,7 +280,7 @@ Manual deployment has two compounding problems. First, it's slow: the gap betwee
 
 This might sound alarming if you're used to thinking of deployment as a high-stakes, careful activity. But the insight behind CD is that frequent, small deployments are *safer* than infrequent, large ones. A deployment of one change is easy to reason about and easy to roll back. A deployment of three months' worth of accumulated changes is a risk event.
 
-### Add a Deployment Stage
+### The What: Add a Deployment Stage
 
 For this application, the deployment target is GitHub Pages. The `actions/deploy-pages` action handles the deployment; all you need to do is tell it what to upload.
 
